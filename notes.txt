@@ -1,0 +1,118 @@
+WebRTC Deep Dive: The Protocol That Powers Every Video Call
+https://www.youtube.com/watch?v=Kn_3uHaKz7Q
+
+This video provides a deep dive into WebRTC (Web Real-Time Communication), the protocol that enables low-latency voice and video calls directly within browsers without requiring plugins (0:49-2:26).
+
+WebRTC uses signaling to exchange session metadata, then ICE finds the best network route using STUN and, when needed, TURN as a relay. DTLS establishes secure transport keys, SRTP protects the audio/video RTP packets, and RTCP carries feedback such as loss and jitter. An SFU receives a publisher’s media once and selectively forwards it to viewers, which is much more scalable than every peer sending video to every other peer.
+
+Key Concepts Covered:
+
+The Protocol Stack: WebRTC operates on UDP rather than TCP to prioritize speed over reliability, ensuring that late data does not block the real-time stream (3:55-6:06).
+1. TCP: (ex: HTTP)
+  - Reliable, ordered, slow
+  - Guaranteed delivery
+  - In order, exactly once
+  - 1 lost packet stalls everything
+
+2. UCP: (ex: WebRTC)
+  - Fast, lossy, honest
+  - No retransmits, no stalls
+  - 1 missed frame does not freeze the call
+  - Optimized for speed, not correctness
+
+The Seven Layers: WebRTC bundles 7 distinct protocols, including SDP (session description protocol), ICE (connectivity establishment), STUN (public IP discovery), and TURN (relay server for restrictive networks) (8:00-10:43).
+
+A. Negotiation (what to send)
+
+1. SDP: Session Description Protocol. Standard to describe the multimedia content of the connection, like resolution, formats, codecs, encryption, etc. so both peers can understand each other once data is transferring. It's metadata describing the content. Technically, SDP is not truly a protocol, but a data format used to describe connection that shares media between devices.
+
+The IPs and Ports that the agent is reachable on (candidates).
+The number of audio and video tracks the agent wishes to send.
+The audio and video codecs each agent supports.
+The values used while connecting (uFrag/uPwd).
+The values used while securing (certificate fingerprint).
+
+One WebRTC Agent makes an “Offer” to start a call, and the other WebRTC Agents “Answers” if it is willing to accept what has been offered.
+
+B. Connectivity (how to reach)
+
+2. ICE (Interactive Connectivity Establishment): pick the best path between peers. It's the framework that lets browsers connect to STUN and TURN servers to connect to peers.
+
+WebRTC doesn’t use a client/server model, it establishes peer-to-peer (P2P) connections. In a P2P connection the task of creating a connection is equally distributed to both peers. This is because a transport address (IP and port) in WebRTC can not be assumed, and may even change during the session. WebRTC will gather all the information it can and will go to great lengths to achieve bi-directional communication between two WebRTC Agents.
+
+ICE is a protocol that tries to find the best way to communicate between two ICE Agents. Each ICE Agent publishes the ways it is reachable, these are known as candidates. A candidate is essentially a transport address of the agent that it believes the other peer can reach. ICE then determines the best pairing of candidates.
+
+3. STUN (Session Traversal Utilities for NAT): answers a client "What is my own public-facing IP address?" and determine any restrictions in your router that would prevent a direct connection with a peer. It's a discovery tool.
+
+NAT (Network Address Translation): used to give your device a public IP address. A router will have a public IP address and every device connected to the router will have a private IP address. Requests will be translated from the device's private IP to the router's public IP with a unique port. That way you don't need a unique public IP for each device but can still be discovered on the Internet.
+
+Some routers will have restrictions on who can connect to devices on the network. So even though we have the public IP address found by the STUN server, not anyone can create a connection. In this situation we need to use TURN.
+
+STUN helps a WebRTC client discover its own public-facing IP address and port as seen from the Internet. The client sends a request to a STUN server, and the server replies with the client’s mapped public address.
+
+STUN does not discover the other peer’s address. Each peer independently gathers its own possible network addresses, called ICE candidates, including local/private addresses and STUN-discovered public addresses. The peers exchange those candidates through the signaling server.
+
+ICE then tests candidate pairs to find a working direct path between the peers. If no direct path works—for example, because of symmetric NAT or restrictive firewall rules—WebRTC falls back to a TURN server, which relays the traffic.
+
+4. TURN (Traversal Using Relays around NAT): relay when direct connection fails. Used when other peer in a connection has no public IP address due to firewalls or private IP addresses. Peers connect to a TURN server rather than directly to each other, and the server forwards their packets.
+
+Some routers using NAT employ a restriction called 'Symmetric NAT'. This means the router will only accept connections from peers you've previously connected to.
+
+TURN bypasses the Symmetric NAT restriction by opening a connection with a TURN server and relaying all information through that server. You would create a connection with a TURN server and tell all peers to send packets to the server which will then be forwarded to you. This obviously comes with some overhead so it is only used if there are no other alternatives.
+
+C. Security
+
+5. DTLS (Datagram Transport Layer Security): TLS, but for UDP. Key exchange. (TLS is what give security for HTTPS.)
+
+DTLS is a protocol used to secure datagram-based communications. It's based on the stream-focused Transport Layer Security (TLS), providing a similar level of security. As a datagram protocol, DTLS doesn't guarantee the order of message delivery, or even that messages will be delivered at all. However, DTLS gains the benefits of datagram protocols, too; in particular, the lower overhead and reduced latency.
+
+All WebRTC related protocols are required to encrypt their communications using DTLS; this includes SCTP, SRTP, and STUN.
+
+D. Transport
+
+6. SRTP (Secure Real-Time Protocol): secure real-time media packets. SRTP is a security profile defined in RFC 3711 that adds AES-128 encryption, HMAC-SHA1 message authentication, and replay protection to RTP voice and video streams.
+
+7. RTCP (RTP Control Protocol): control channel -- stats and sync. RTCP is a binary-encoded out-of-band signaling protocol that functions alongside the Real-time Transport Protocol (RTP). RTCP provides statistics and control information for an RTP session. It partners with RTP in the delivery and packaging of multimedia data but does not transport any media data itself. The primary function of RTCP is to provide feedback on the quality of service (QoS) in media distribution by periodically sending statistics information such as transmitted octet and packet counts, packet loss, packet delay variation, and round-trip delay time to participants in a streaming multimedia session.
+
+NAT Traversal: The video explains how ICE candidates and signaling servers help devices behind private NAT routers successfully connect to each other (10:46-13:47).
+
+Scalability Challenges: Pure peer-to-peer (P2P) connections fail at scale because bandwidth requirements grow quadratically. To solve this, production systems use an SFU (Selective Forwarding Unit) to route media packets efficiently without decoding them (17:47-20:58).
+
+Peer-to-peer quickly fails if we have multiple people on a call. For n people in a call, each person must upload and download n-1 streams (1 upload/download stream for all other people) = n(n - 1) connections: uploads to and downloads from all other people. Does NOT scale! So how does a Zoom call scale? It uses an SFU:
+
+SFU (Selective Forwarding Unit):
+
+- Each peer talks to only 1 server in the middle (SFU).
+- Each peer uploads their video only ONCE to SFU.
+- SFU forwards that video to everyone else in call.
+- For n people on call, each person uploads 1 stream, then downloads n-1 streams (from all others).
+- SFU does NOT decode or re-encode video. It doesn't even really look at contents. It just rewrites a few packet headers and ships your packets to all other peers.
+- It's basically a smart router for media packets.
+
+Simulcast:
+- Client sends 2-3 resolution quality versions of each video at same time: high for speaker view (large tile), medium for grid view (medium tile), low for sidebar (thumbnail)
+- SFU picks right quality for each viewer, based on how big the image is on viewer screen.
+- If 1 user is muted, SFU stops forwarding that 1 user's audio. If 1 user's connection is lower quality, the SFU sends lower quality video to just that 1 user.
+- This smart control by SFU, per user, SAVES BANDWIDTH!
+
+MCU (Multipoint Control Unit): old architecture. The MCU would actually decode every incoming stream, mix all + re-encode it into 1 composite video, then send composite video back to everyone. But this is super expensive: CPU cost is 10x. No one uses MCU any more!
+
+In practice, we have 2 choices: 1) P2P (Peer-to-peer) for tiny calls (<= 4 peers), 2) SFU for everything else. In production, WebRTC almost always uses SFU.
+
+Architecture Teardown: The video shows how Discord uses regional voice servers (acting as SFUs) to handle massive scale, keeping latency minimal for thousands of users simultaneously (21:47-24:45).
+
+Ex: Discord has voice channels with sometimes thousands listening at once.
+- When you join a voice channel, your client connects to a Regional Voice Server (like CDN) geographically closest to you. That server is an SFU.
+- Control Plane: Discord uses Elixir for signalling/matchmaking layer for call setup/teardown. It uses Discord's normal API + websockets for offer/answer/ICE. For chat messages, typing indicators, presence updates, push notifications, it all flows through websockets and Discord's API.
+- Media Plane: It uses WebRTC only for the 1 job it's good at, real-time low latency audio. It uses C++ to handle streaming of the actual audio. It has SFU packet forwarder, for SRTP/UDP audio packets, encoded with Opus codec. It never decodes/re-encodes audio. It just rewrites packet headers, then forwards them as is.
+- Client encodes your voice with Opus audio codec, which can drop down to 6 kbps for low bandwidth, then scale up to studio quality on a good connection.
+- Each client decodes other's voice packets separately.
+
+Practical Realities:
+The final segment highlights common pitfalls in real-world deployments, such as the high cost of TURN servers, the necessity of TCP fallbacks for mobile networks, and the architectural complexity of implementing features like call recording (24:45-27:01).
+- TURN servers cost money. 10-15% of connections can't establish a direct path, since some networks are hostile to PTP (corporate firewalls, networks block UDP traffic, etc). TURN servers must relay every packet in both directions. Running TURN servers needs significant ops work and real costs, as they must handle full bandwidth of every media stream they relay.
+- You must build your own signaling server for offers/answers/ICE, usually as a small websocket service. WebRTC ships nothing.
+- Mobile networks hate UDP. Some block or throttle it. So your TURN server must also support relaying packets over TCP with TLS.
+- Safari and Chrome disagree on codecs. You must fix these differences. iOS has its own special rules on how getUserMedia() works.
+- Recording is its own system that joins the call as separate participant, decodes packets, + writes them to file.
+
