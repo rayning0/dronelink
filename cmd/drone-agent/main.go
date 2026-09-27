@@ -96,12 +96,12 @@ func (d *drone) apply(command command) acknowledgement {
 		return ack
 	}
 
-	if command.SentAt.IsZero() || now.Sub(command.SentAt) > 2*time.Second {
-		ack.Reason = "command is stale"
+	if command.SentAt.IsZero() ||
+		now.Sub(command.SentAt) > 2*time.Second ||
+		command.SentAt.After(now.Add(2*time.Second)) {
+		ack.Reason = "command timestamp is invalid or stale"
 		return ack
 	}
-
-	d.lastCommandAt = &now
 
 	switch command.Action {
 	case "arm":
@@ -149,6 +149,7 @@ func (d *drone) apply(command command) acknowledgement {
 	}
 
 	ack.Accepted = true
+	d.lastCommandAt = &now
 	ack.State = d.state
 	return ack
 }
