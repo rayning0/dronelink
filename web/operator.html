@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>DroneLink - Operator Console</title>
+  <style>
+    body {
+      font-family: system-ui;
+      max-width: 800px;
+      margin: 40px auto;
+    }
+
+    video {
+      width: 100%;
+      background: #111;
+      border-radius: 8px;
+    }
+
+    button {
+      padding: 10px 16px;
+      margin: 12px 8px 12px 0;
+    }
+
+    .error {
+      color: #b00020;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>DroneLink: Operator Console</h1>
+  <p id="status">Not connected</p>
+
+  <button id="join">Join as operator</button>
+  <button id="leave" disabled>Leave</button>
+
+  <div id="remote-video">
+    <p>Waiting for drone camera...</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
+  <script src="/common.js"></script>
+  <script src="/operator.js"></script>
+</body>
+
+</html>
