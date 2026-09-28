@@ -172,6 +172,15 @@ func (d *drone) getTelemetry() telemetry {
 	// Simulate a very small battery drain while the agent is running.
 	d.batteryPct = max(0, d.batteryPct-0.01)
 
+	// Simulate vertical motion while flying.
+	if d.state == stateFlying {
+		d.altitudeM = max(0, d.altitudeM+d.velocity.Up)
+
+		if d.altitudeM == 0 && d.velocity.Up < 0 {
+			d.velocity.Up = 0
+		}
+	}
+
 	// Simulate descent while landing.
 	if d.state == stateLanding {
 		d.altitudeM = max(0, d.altitudeM-1)
