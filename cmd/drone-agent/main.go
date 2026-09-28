@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	roomName      = "demo"
-	agentIdentity = "drone-agent-01"
+	roomName         = "demo"
+	agentIdentity    = "drone-agent-01"
+	operatorIdentity = "operator"
 )
 
 type flightState string
@@ -62,13 +63,15 @@ type telemetry struct {
 }
 
 type drone struct {
-	mu             sync.Mutex
-	state          flightState
-	batteryPct     float64
-	altitudeM      float64
-	velocity       velocity
-	lastCommandAt  *time.Time
-	lastVelocityAt *time.Time
+	mu                     sync.Mutex
+	state                  flightState
+	batteryPct             float64
+	altitudeM              float64
+	velocity               velocity
+	lastCommandAt          *time.Time
+	lastVelocityAt         *time.Time
+	lastVelocityReceivedAt *time.Time
+	lastTelemetryAt        time.Time
 }
 
 func newDrone() *drone {
@@ -136,6 +139,7 @@ func (d *drone) apply(command command) acknowledgement {
 
 		sentAt := command.SentAt
 		d.lastVelocityAt = &sentAt
+		d.lastVelocityReceivedAt = &now
 
 	case "land":
 		if d.state != stateFlying {
@@ -169,12 +173,26 @@ func (d *drone) getTelemetry() telemetry {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	now := time.Now()
+	elapsed := 0.0
+	if !d.lastTelemetryAt.IsZero() {
+		elapsed = now.Sub(d.lastTelemetryAt).Seconds()
+	}
+	d.lastTelemetryAt = now
+
 	// Simulate a very small battery drain while the agent is running.
 	d.batteryPct = max(0, d.batteryPct-0.01)
 
+	// Stop if live velocity updates have stopped arriving.
+	if d.state == stateFlying &&
+		d.lastVelocityReceivedAt != nil &&
+		now.Sub(*d.lastVelocityReceivedAt) > 500*time.Millisecond {
+		d.velocity = velocity{}
+	}
+
 	// Simulate vertical motion while flying.
 	if d.state == stateFlying {
-		d.altitudeM = max(0, d.altitudeM+d.velocity.Up)
+		d.altitudeM = max(0, d.altitudeM+d.velocity.Up*elapsed)
 
 		if d.altitudeM == 0 && d.velocity.Up < 0 {
 			d.velocity.Up = 0
@@ -196,7 +214,7 @@ func (d *drone) getTelemetry() telemetry {
 		AltitudeM:     d.altitudeM,
 		Velocity:      d.velocity,
 		LastCommandAt: d.lastCommandAt,
-		SentAt:        time.Now(),
+		SentAt:        now,
 	}
 }
 
@@ -222,6 +240,11 @@ func main() {
 		}
 
 		if command.Type != "command" {
+			return
+		}
+
+		if params.SenderIdentity != operatorIdentity {
+			log.Printf("ignoring command from unauthorized sender %s", params.SenderIdentity)
 			return
 		}
 

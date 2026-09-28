@@ -129,6 +129,8 @@ async function joinOperator() {
         );
 
         room.on(LivekitClient.RoomEvent.Disconnected, () => {
+            stopMovementLoop();
+            pressedKeys.clear();
             setStatus(statusElement, "Disconnected");
             remoteVideo.innerHTML = "<p>Waiting for drone camera...</p>";
             setControlsEnabled(false);
