@@ -3,22 +3,51 @@
 By Raymond Gan
 
 DroneLink is a local [LiveKit](https://github.com/livekit/livekit)-based simulator
-for remote drone operations. It combines a browser WebRTC media plane with a Go
+for remote drone operations. It combines a browser WebRTC media plane with a Golang
 control plane to explore low latency, network quality, authorization, command
 ordering, telemetry, and safe behavior when connectivity or operator input
 disappears.
 
 ## Features
 
-- Simulated drone camera publishes webcam video; an operator subscribes through
-  LiveKit's SFU.
-- Keyboard and button flight controls use LiveKit data messages.
-- Go drone agent validates commands and returns acknowledgements and telemetry.
-- UI displays flight state, battery, altitude, velocity, command results, and
-  failsafe status.
-- Return-home-and-land demonstrates a multi-step safety workflow.
-- WebRTC link diagnostics show connection state, candidate path (`host`, `srflx`,
-  or `relay`), RTT, and inbound video bitrate.
+- Simulated drone camera publishes webcam video; an operator subscribes through LiveKit's SFU.
+- Keyboard + button flight controls use LiveKit data messages.
+- Click buttons, in this order, to start flying the simulated drone:
+  - `Arm → Take Off`
+- Fly drone with these keys. Animated **Flight Visualization** boxes to right of webcam video move 2 images of a drone in 6 directions as you fly the drone:
+  - **W**: forward
+  - **S**: backward
+  - **A**: left
+  - **D**: right
+  - **R**: up
+  - **F**: down
+- Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude.
+- Go drone agent validates commands and returns acknowledgements and telemetry every 1 second.
+- **Drone Telemetry** in UI shows simulated:
+  - flight state
+  - battery life
+  - altitude (m)
+  - velocity
+  - failsafe status
+  - last accepted command (date/time)
+  - updated (date/time)
+
+- **WebRTC Link Health** in UI shows real-time video stats for:
+  - connection state (`connecting`, `connected`, `disconnected`, or `failed`)
+  - candidate path (`host`, `srflx`, or `relay`)
+  - RTT (Round-Trip Time) in ms
+  - packet loss (%)
+  - jitter (ms)
+  - inbound video bitrate (kbps).
+- Test its **dead-man failsafe** feature:
+  - What if operator suddenly loses contact with drone while flying?
+  - While still flying drone (holding down 1 of the 6 velocity keys), suddenly click "Leave" or disconnect your WiFi
+  - If drone gets no new velocity commands in 500 ms, it won't keep flying in same direction. Instead, it:
+    - Sets drone velocity to 0
+    - Changes drone state to `HOVER_FAILSAFE`. Now drone hovers mid-air, waiting for your next command.
+    - Publishes telemetry saying why it changed.
+    - When you reload http://localhost:8080/operator.html and rejoin as operator, it shows a red failsafe banner on top.
+    - If you start flying the drone again, it changes back to `FLYING` state and the red banner disappears.
 
 ## Architecture
 
@@ -70,14 +99,14 @@ The Go services use LiveKit's Go SDK and provide:
 - Timestamp validation and monotonic ordering for velocity commands.
 - Sender authorization requiring an operator identity.
 - A 500 ms dead-man velocity failsafe and immediate stop on disconnect.
-- Explicit `DISARMED`, `ARMED`, `FLYING`, `LANDING`, and `HOVER_FAILSAFE` states.
+- Explicit `DISARMED`, `ARMED`, `FLYING`, `LANDING`, and `HOVER_FAILSAFE` states for the drone. Its state machine may only change in this order: `DISARMED → ARMED → FLYING → LANDING → DISARMED`.
 
 These mechanisms demonstrate Go concurrency and shared-state protection in a
 real-time system where responsiveness must not weaken command safety.
 
-## Engineering progression
+## Engineering features added in this order
 
-The branch history shows a complete RemoteOps slice evolving from a health/token
+My Git branch history shows RemoteOps evolving from a health/token
 service:
 
 1. Added LiveKit tokens and browser camera/operator flows.
@@ -91,19 +120,60 @@ service:
 
 ## Running locally
 
-```sh
-export LIVEKIT_API_KEY=...
-export LIVEKIT_API_SECRET=...
-go run .
-go run ./drone-agent
+1. Clone my code to your laptop:
+```
+git clone git@github.com:rayning0/dronelink.git
+cd dronelink
 ```
 
-Open `http://127.0.0.1:8080`, start the camera page, and join from the operator
-page. Credentials are supplied through the environment rather than committed.
+2. [Install LiveKit](https://docs.livekit.io/transport/self-hosting/local/):
+```
+brew update && brew install livekit
+```
+2. Create `.env` file. Use LiveKit's default API key and secret:
+```
+LIVEKIT_URL=ws://127.0.0.1:7880
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+```
+3. Open 3 tabs in Mac Terminal:
+- In tab 1, do `livekit-server --dev` to start LiveKit in dev mode.
+- In tab 2, do `go run .` to start control plane code.
+- In tab 3, do `go run ./drone-agent` to start simulated drone agent.
 
-## Production-readiness roadmap
+4. Open 2 pages in your browser:
 
-This is a simulator, not a flight-certified system. To productionize it, I would:
+http://localhost:8080/drone.html shows the simulated drone camera. Click "Join as drone camera." It turns on your webcam and starts sending video to the LiveKit SFU server.
+
+http://localhost:8080/operator.html shows the simulated drone operator. Click "Join as operator." It shows real-time video sent by the LiveKit SFU.
+
+5. Fly drone:
+
+- Click buttons in this order to start flying the simulated drone:
+  - `Arm → Take Off`
+- Fly drone with these keys. Animated **Flight Visualization** boxes to right of webcam video move 2 images of a drone in 6 directions as you fly the drone:
+  - **W**: forward
+  - **S**: backward
+  - **A**: left
+  - **D**: right
+  - **R**: up
+  - **F**: down
+- Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude.
+
+6. Test its **dead-man failsafe** feature:
+
+- What if operator suddenly loses contact with drone while flying?
+- While still flying drone (holding down 1 of the 6 velocity keys, like "W"), suddenly click "Leave" or disconnect your WiFi
+- If drone gets no new velocity commands in 500 ms, it won't keep flying in same direction. Instead, it:
+  - Sets drone velocity to 0
+  - Changes drone state to `HOVER_FAILSAFE`. Now drone hovers mid-air, waiting for your next command.
+  - Publishes telemetry saying why it changed.
+  - When you reload http://localhost:8080/operator.html and rejoin as operator, it shows a red failsafe banner on top.
+  - If you start flying the drone again, it changes back to `FLYING` state and the red banner disappears.
+
+## Production roadmap
+
+This is a simulator, not a flight-certified system. To change it for production, I'd:
 
 1. Implement the adapter boundary against a flight controller or companion
    computer, likely via MAVLink, and report hardware-confirmed state.
@@ -124,6 +194,6 @@ This is a simulator, not a flight-certified system. To productionize it, I would
 9. Secure recordings and telemetry with retention, deletion, privacy, and
    regional data-handling policies.
 
-The production principle is to keep the media plane low-latency and observable
+For production, I'd keep the media plane low-latency and observable
 while making the control plane authenticated, replay-resistant, auditable, and
 fail-safe.
