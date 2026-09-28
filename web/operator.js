@@ -10,6 +10,7 @@ const remoteVideo = document.querySelector("#remote-video");
 const telemetryElement = document.querySelector("#telemetry");
 const acknowledgementElement = document.querySelector("#acknowledgement");
 const failsafeElement = document.querySelector("#failsafe");
+const linkHealthElement = document.querySelector("#link-health");
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -19,6 +20,10 @@ const movementKeys = new Set(["w", "a", "s", "d", "r", "f"]);
 
 let room;
 let movementTimer;
+let remoteVideoTrack;
+let statsTimer;
+let previousInboundVideoStats;
+let connectionState = "not connected";
 const pressedKeys = new Set();
 
 joinButton.addEventListener("click", joinOperator);
@@ -86,6 +91,11 @@ async function joinOperator() {
                 video.playsInline = true;
 
                 remoteVideo.replaceChildren(video);
+
+                // Save the actual received WebRTC video track for the stats panel.
+                remoteVideoTrack = track;
+                startStatsLoop();
+
                 setStatus(statusElement, `Viewing camera from ${participant.identity}`);
             },
         );
@@ -138,6 +148,11 @@ async function joinOperator() {
             },
         );
 
+        room.on(LivekitClient.RoomEvent.ConnectionStateChanged, (state) => {
+            connectionState = String(state);
+            void updateLinkHealth();
+        });
+
         room.on(LivekitClient.RoomEvent.Disconnected, () => {
             stopMovementLoop();
             pressedKeys.clear();
@@ -152,6 +167,7 @@ async function joinOperator() {
 
         setStatus(statusElement, "Connecting to LiveKit...");
         await room.connect(LIVEKIT_URL, token);
+        connectionState = "connected";
 
         startMovementLoop();
 
@@ -276,4 +292,155 @@ function leaveOperator() {
     joinButton.disabled = false;
     failsafeElement.hidden = true;
     failsafeElement.textContent = "";
+    stopStatsLoop();
+    connectionState = "not connected";
+}
+
+// *******************************************************************
+// Add WebRTC stats:
+
+// connection state (connecting, connected, disconnected, or failed)
+// selected candidate pair:
+//    - host: A direct local connection (in same network).
+//    - srflx (Server Reflexive): A direct connection across the internet, resolved via a STUN server.
+//    - relay: Traffic bounced through a TURN server because a strict firewall blocked direct connection.
+// RTT(Round-Trip Time) in ms: tells network latency. Low RTT (< 50–100ms) means a highly responsive, real-time connection. High RTT causes noticeable delays in conversation.
+// packet loss: % or count of data packets sent but never arrived at destination.
+// jitter (ms): fluctuation in arrival time of data packets. If Packet A takes 20ms and Packet B takes 80ms, the jitter is high. High jitter makes audio sound choppy or robotic and makes video stutter.
+// inbound video bitrate (kbps): actual bandwidth consumption and quality of incoming video stream.
+
+function startStatsLoop() {
+    stopStatsLoop(false);
+
+    void updateLinkHealth();
+    statsTimer = window.setInterval(() => {
+        void updateLinkHealth();
+    }, 1000);
+}
+
+function stopStatsLoop(clearTrack = true) {
+    if (statsTimer) {
+        window.clearInterval(statsTimer);
+        statsTimer = undefined;
+    }
+
+    previousInboundVideoStats = undefined;
+
+    if (clearTrack) {
+        remoteVideoTrack = undefined;
+    }
+
+    linkHealthElement.textContent = "Waiting for video statistics...";
+}
+
+async function updateLinkHealth() {
+    if (!remoteVideoTrack) {
+        linkHealthElement.textContent =
+            `Connection state: ${connectionState}\nVideo stats: waiting for drone camera track`;
+        return;
+    }
+
+    try {
+        const report = await remoteVideoTrack.getRTCStatsReport();
+
+        if (!report) {
+            linkHealthElement.textContent =
+                `Connection state: ${connectionState}\nVideo stats: unavailable in this browser`;
+            return;
+        }
+
+        let inboundVideo;
+        let remoteOutboundVideo;
+        let selectedCandidatePair;
+
+        report.forEach((stat) => {
+            const isVideo = stat.kind === "video" || stat.mediaType === "video";
+
+            if (stat.type === "inbound-rtp" && isVideo) {
+                inboundVideo = stat;
+            }
+
+            if (stat.type === "remote-outbound-rtp" && isVideo) {
+                remoteOutboundVideo = stat;
+            }
+
+            if (
+                stat.type === "candidate-pair" &&
+                stat.state === "succeeded" &&
+                (stat.nominated || stat.selected)
+            ) {
+                selectedCandidatePair = stat;
+            }
+        });
+
+        if (!inboundVideo) {
+            linkHealthElement.textContent =
+                `Connection state: ${connectionState}\nInbound video stats: not available yet`;
+            return;
+        }
+
+        const now = performance.now();
+        let bitrateText = "calculating...";
+
+        if (previousInboundVideoStats) {
+            const elapsedSeconds =
+                (now - previousInboundVideoStats.observedAt) / 1000;
+            const byteDelta =
+                inboundVideo.bytesReceived - previousInboundVideoStats.bytesReceived;
+
+            if (elapsedSeconds > 0) {
+                const kbps = Math.max(0, (byteDelta * 8) / elapsedSeconds / 1000);
+                bitrateText = `${kbps.toFixed(0)} kbps`;
+            }
+        }
+
+        previousInboundVideoStats = {
+            bytesReceived: inboundVideo.bytesReceived ?? 0,
+            observedAt: now,
+        };
+
+        const localCandidate = selectedCandidatePair
+            ? report.get(selectedCandidatePair.localCandidateId)
+            : undefined;
+        const remoteCandidate = selectedCandidatePair
+            ? report.get(selectedCandidatePair.remoteCandidateId)
+            : undefined;
+
+        const candidateTypes =
+            localCandidate?.candidateType && remoteCandidate?.candidateType
+                ? `${localCandidate.candidateType} → ${remoteCandidate.candidateType}`
+                : "unavailable";
+
+        const rttSeconds =
+            selectedCandidatePair?.currentRoundTripTime ??
+            remoteOutboundVideo?.roundTripTime;
+
+        const rttText =
+            typeof rttSeconds === "number"
+                ? `${(rttSeconds * 1000).toFixed(1)} ms`
+                : "unavailable";
+
+        const jitterText =
+            typeof inboundVideo.jitter === "number"
+                ? `${(inboundVideo.jitter * 1000).toFixed(1)} ms`
+                : "unavailable";
+
+        const packetsReceived = inboundVideo.packetsReceived ?? 0;
+        const packetsLost = inboundVideo.packetsLost ?? 0;
+        const totalPackets = packetsReceived + packetsLost;
+        const lossPercent =
+            totalPackets > 0 ? (packetsLost / totalPackets) * 100 : 0;
+
+        linkHealthElement.textContent = [
+            `Connection state: ${connectionState}`,
+            `Candidate pair: ${candidateTypes}`,
+            `RTT (Round-Trip Time): ${rttText}`,
+            `Packet loss: ${lossPercent.toFixed(2)}% (${packetsLost} lost)`,
+            `Jitter: ${jitterText}`,
+            `Inbound video bitrate: ${bitrateText}`,
+        ].join("\n");
+    } catch (error) {
+        linkHealthElement.textContent =
+            `Connection state: ${connectionState}\nUnable to read RTC statistics: ${error.message}`;
+    }
 }
