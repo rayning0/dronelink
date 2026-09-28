@@ -2,26 +2,33 @@
 
 By Raymond Gan
 
-DroneLink is a local [LiveKit](https://github.com/livekit/livekit)-based simulator
-for remote drone operations. It combines a browser WebRTC media plane with a Golang
-control plane to explore low latency, network quality, authorization, command
-ordering, telemetry, and safe behavior when connectivity or operator input
-disappears.
+DroneLink is a local [LiveKit](https://github.com/livekit/livekit)-based simulator for remote drone operations. It combines a browser WebRTC media plane with a Golang control plane to explore low latency, network quality, authorization, command ordering, telemetry, and safe behavior when connectivity or operator input disappears.
 
 ## Features
 
 - Simulated drone camera publishes webcam video; an operator subscribes through [LiveKit's SFU](https://docs.livekit.io/reference/internals/livekit-sfu/).
+
+Drone Camera + Operator pages before connect:
+
+![Drone Camera + Operator pages before connect](https://github.com/rayning0/dronelink/blob/main/img/pages_before_connect.png)
+
+After connect:
+
+![Drone Camera + Operator pages after connect](https://github.com/rayning0/dronelink/blob/main/img/pages_after_connect.png)
+
 - Keyboard + button flight controls use LiveKit data messages.
-- Click buttons, in this order, to start flying the simulated drone:
+- Click buttons, in this order, to start flying simulated drone:
   - `Arm → Take Off`
-- Fly drone with these keys. Animated **Flight Visualization** boxes to right of webcam video move 2 images of a drone in 6 directions as you fly the drone:
+- Fly drone with these keys. Animated **Flight Visualization** boxes to right of video move 2 images of a drone in 6 directions as you fly the drone:
   - **W**: forward
   - **S**: backward
   - **A**: left
   - **D**: right
   - **R**: up
   - **F**: down
-- Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude. (`Return Home` models a safe UI sequence: it sends `return_home` command, animates return to home position, then sends a real `land` command. It is not yet a GPS/navigation planner.)
+
+![Animated Flight Visualization](https://github.com/rayning0/dronelink/blob/main/img/flight_visualization.png)
+
 - Go drone agent validates commands and returns acknowledgements and telemetry every 1 second.
 - **Drone Telemetry** in UI shows simulated:
   - flight state
@@ -39,6 +46,13 @@ disappears.
   - packet loss (%)
   - jitter (ms)
   - inbound video bitrate (kbps).
+
+![Flight controls, WebRTC stats, and Telemetry](https://github.com/rayning0/dronelink/blob/main/img/bottom_operator_page.png)
+
+- Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude. (`Return Home` models a safe UI sequence: it sends `return_home` command, animates return to home position, then sends a real `land` command. It is not yet a GPS/navigation planner.)
+
+![Return Home](https://github.com/rayning0/dronelink/blob/main/img/return_home.png)
+
 - Test its **dead-man failsafe** feature:
   - What if operator suddenly loses contact with drone while flying?
   - While still flying drone (holding down 1 of the 6 velocity keys), suddenly click "Leave" or disconnect your WiFi
@@ -48,6 +62,8 @@ disappears.
     - Publishes telemetry saying why it changed.
     - When you reload http://localhost:8080/operator.html and rejoin as operator, it shows a red failsafe banner on top.
     - If you start flying the drone again, it changes back to `FLYING` state and the red banner disappears.
+
+![Dead-man Failsafe](https://github.com/rayning0/dronelink/blob/main/img/failsafe.png)
 
 ## Architecture
 
@@ -160,24 +176,24 @@ cd dronelink
 ```
 brew update && brew install livekit
 ```
-2. Create `.env` file. Use LiveKit's default API key and secret:
+3. Create `.env` file. Use LiveKit's default API key and secret:
 ```
 LIVEKIT_URL=ws://127.0.0.1:7880
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=secret
 ```
-3. Open 3 tabs in Mac Terminal:
+4. Open 3 tabs in Mac Terminal:
 - In tab 1, do `livekit-server --dev` to start LiveKit in dev mode.
 - In tab 2, do `go run .` to start control plane code.
 - In tab 3, do `go run ./drone-agent` to start simulated drone agent.
 
-4. Open 2 pages in your browser:
+5. Open 2 pages in your browser:
 
 http://localhost:8080/drone.html shows the simulated drone camera. Click **Join as drone camera**. It turns on your webcam and starts sending video to the LiveKit SFU server. It requests webcam access, gets a camera-scoped JWT token from the local Go service, and joins the LiveKit room as a WebRTC publisher. The browser sends the encoded webcam video track over DTLS/SRTP to the local LiveKit SFU.
 
 http://localhost:8080/operator.html shows the simulated drone operator. Click **Join as operator**. It shows real-time video sent by the LiveKit SFU. It gets an operator-scoped JWT token, joins the same room, and subscribes to that forwarded video track. In this local demo, the selected ICE path is `host → host`, so the active media path stays local. The operator also reads browser WebRTC stats like RTT, jitter, loss, and inbound bitrate.
 
-5. Fly drone:
+6. Fly drone:
 
 - Click buttons in this order to start flying the simulated drone:
   - `Arm → Take Off`
@@ -190,7 +206,7 @@ http://localhost:8080/operator.html shows the simulated drone operator. Click **
   - **F**: down
 - Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude.
 
-6. Test its **dead-man failsafe** feature:
+7. Test its **dead-man failsafe** feature:
 
 - What if operator suddenly loses contact with drone while flying?
 - While still flying drone (holding down 1 of the 6 velocity keys, like "W"), suddenly click "Leave" or disconnect your WiFi
