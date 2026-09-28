@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -243,7 +244,7 @@ func main() {
 			return
 		}
 
-		if params.SenderIdentity != operatorIdentity {
+		if !strings.HasPrefix(params.SenderIdentity, operatorIdentity) {
 			log.Printf("ignoring command from unauthorized sender %s", params.SenderIdentity)
 			return
 		}
