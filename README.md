@@ -225,6 +225,7 @@ http://localhost:8080/operator.html shows the simulated drone operator. Click **
 - [drone-agent/main.go](https://github.com/rayning0/dronelink/blob/main/drone-agent/main.go) — Go simulated drone agent. Receives LiveKit data messages, validates commands, manages the flight-state machine, publishes acknowledgements/telemetry, and enforces the 500 ms velocity failsafe.
 - [web/operator.js](https://github.com/rayning0/dronelink/blob/main/web/operator.js) — Operator console behavior: subscribes to video, sends reliable and lossy commands, renders telemetry, reads browser WebRTC statistics, and runs the flight visualization.
 - [web/drone.html](https://github.com/rayning0/dronelink/blob/main/web/drone.html) — Simulated drone-camera browser: captures webcam video and publishes it to the LiveKit room.
+- [web/operator.html](https://github.com/rayning0/dronelink/blob/main/web/operator.html) — Operator console interface: displays subscribed camera feed, flight controls, WebRTC link-health metrics, telemetry, command acknowledgements, dead-man failsafe alerts, and flight visualization animation.
 
 ### Software tests
 
