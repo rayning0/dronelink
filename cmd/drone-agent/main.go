@@ -23,10 +23,12 @@ const (
 type flightState string
 
 const (
-	stateDisarmed flightState = "DISARMED"
-	stateArmed    flightState = "ARMED"
-	stateFlying   flightState = "FLYING"
-	stateLanding  flightState = "LANDING"
+	stateDisarmed           flightState = "DISARMED"
+	stateArmed              flightState = "ARMED"
+	stateFlying             flightState = "FLYING"
+	stateLanding            flightState = "LANDING"
+	stateHoverFailsafe      flightState = "HOVER_FAILSAFE"
+	velocityFailsafeTimeout             = 500 * time.Millisecond
 )
 
 type velocity struct {
@@ -54,13 +56,14 @@ type acknowledgement struct {
 }
 
 type telemetry struct {
-	Type          string      `json:"type"`
-	State         flightState `json:"state"`
-	BatteryPct    float64     `json:"batteryPct"`
-	AltitudeM     float64     `json:"altitudeM"`
-	Velocity      velocity    `json:"velocity"`
-	LastCommandAt *time.Time  `json:"lastCommandAt,omitempty"`
-	SentAt        time.Time   `json:"sentAt"`
+	Type           string      `json:"type"`
+	State          flightState `json:"state"`
+	BatteryPct     float64     `json:"batteryPct"`
+	AltitudeM      float64     `json:"altitudeM"`
+	Velocity       velocity    `json:"velocity"`
+	FailsafeReason string      `json:"failsafeReason,omitempty"`
+	LastCommandAt  *time.Time  `json:"lastCommandAt,omitempty"`
+	SentAt         time.Time   `json:"sentAt"`
 }
 
 type drone struct {
@@ -69,6 +72,7 @@ type drone struct {
 	batteryPct             float64
 	altitudeM              float64
 	velocity               velocity
+	failsafeReason         string
 	lastCommandAt          *time.Time
 	lastVelocityAt         *time.Time
 	lastVelocityReceivedAt *time.Time
@@ -132,10 +136,14 @@ func (d *drone) apply(command command) acknowledgement {
 		d.altitudeM = 5
 
 	case "set_velocity":
-		if d.state != stateFlying {
-			ack.Reason = "velocity changes require FLYING state"
+		if d.state != stateFlying && d.state != stateHoverFailsafe {
+			ack.Reason = "velocity changes require FLYING or HOVER_FAILSAFE state"
 			return ack
 		}
+
+		// A fresh velocity command explicitly resumes teleoperation.
+		d.state = stateFlying
+		d.failsafeReason = ""
 		d.velocity = command.Velocity
 
 		sentAt := command.SentAt
@@ -143,7 +151,7 @@ func (d *drone) apply(command command) acknowledgement {
 		d.lastVelocityReceivedAt = &now
 
 	case "land":
-		if d.state != stateFlying {
+		if d.state != stateFlying && d.state != stateHoverFailsafe {
 			ack.Reason = "landing requires FLYING state"
 			return ack
 		}
@@ -170,6 +178,28 @@ func (d *drone) apply(command command) acknowledgement {
 	return ack
 }
 
+func (d *drone) enforceVelocityFailsafe(now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	isMoving := d.velocity.Forward != 0 ||
+		d.velocity.Right != 0 ||
+		d.velocity.Up != 0
+
+	if d.state != stateFlying ||
+		!isMoving ||
+		d.lastVelocityReceivedAt == nil ||
+		now.Sub(*d.lastVelocityReceivedAt) <= velocityFailsafeTimeout {
+		return false
+	}
+
+	d.velocity = velocity{}
+	d.state = stateHoverFailsafe
+	d.failsafeReason = "no new velocity command received in at least 500 ms"
+
+	return true
+}
+
 func (d *drone) getTelemetry() telemetry {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -183,13 +213,6 @@ func (d *drone) getTelemetry() telemetry {
 
 	// Simulate a very small battery drain while the agent is running.
 	d.batteryPct = max(0, d.batteryPct-0.01)
-
-	// Stop if live velocity updates have stopped arriving.
-	if d.state == stateFlying &&
-		d.lastVelocityReceivedAt != nil &&
-		now.Sub(*d.lastVelocityReceivedAt) > 500*time.Millisecond {
-		d.velocity = velocity{}
-	}
 
 	// Simulate vertical motion while flying.
 	if d.state == stateFlying {
@@ -209,13 +232,14 @@ func (d *drone) getTelemetry() telemetry {
 	}
 
 	return telemetry{
-		Type:          "telemetry",
-		State:         d.state,
-		BatteryPct:    d.batteryPct,
-		AltitudeM:     d.altitudeM,
-		Velocity:      d.velocity,
-		LastCommandAt: d.lastCommandAt,
-		SentAt:        now,
+		Type:           "telemetry",
+		State:          d.state,
+		BatteryPct:     d.batteryPct,
+		AltitudeM:      d.altitudeM,
+		Velocity:       d.velocity,
+		FailsafeReason: d.failsafeReason,
+		LastCommandAt:  d.lastCommandAt,
+		SentAt:         now,
 	}
 }
 
@@ -283,8 +307,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	telemetryTicker := time.NewTicker(time.Second)
+	defer telemetryTicker.Stop()
+
+	failsafeTicker := time.NewTicker(100 * time.Millisecond)
+	defer failsafeTicker.Stop()
 
 	for {
 		select {
@@ -292,7 +319,12 @@ func main() {
 			log.Println("drone agent shutting down")
 			return
 
-		case <-ticker.C:
+		case <-failsafeTicker.C:
+			if simulatedDrone.enforceVelocityFailsafe(time.Now()) {
+				log.Println("velocity failsafe activated: entering HOVER_FAILSAFE")
+			}
+
+		case <-telemetryTicker.C:
 			currentTelemetry := simulatedDrone.getTelemetry()
 
 			// Telemetry is intentionally lossy: a fresh update arrives every second.

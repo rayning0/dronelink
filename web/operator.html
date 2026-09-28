@@ -25,12 +25,21 @@
     .error {
       color: #b00020;
     }
+
+    .failsafe {
+      background: #b00020;
+      color: white;
+      border-radius: 6px;
+      font-weight: 700;
+      padding: 12px;
+    }
   </style>
 </head>
 
 <body>
   <h1>DroneLink: Operator Console</h1>
   <p id="status">Not connected</p>
+  <p id="failsafe" class="failsafe" hidden role="alert"></p>
 
   <button id="join">Join as operator</button>
   <button id="leave" disabled>Leave</button>

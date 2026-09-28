@@ -9,6 +9,7 @@ const statusElement = document.querySelector("#status");
 const remoteVideo = document.querySelector("#remote-video");
 const telemetryElement = document.querySelector("#telemetry");
 const acknowledgementElement = document.querySelector("#acknowledgement");
+const failsafeElement = document.querySelector("#failsafe");
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -111,9 +112,18 @@ async function joinOperator() {
                         `Battery: ${message.batteryPct.toFixed(2)}%`,
                         `Altitude: ${message.altitudeM.toFixed(1)} m`,
                         `Velocity: forward=${message.velocity.forward}, right=${message.velocity.right}, up=${message.velocity.up}`,
+                        `Failsafe: ${message.failsafeReason || "none"}`,
                         `Last accepted command: ${message.lastCommandAt ?? "none"}`,
                         `Updated: ${new Date(message.sentAt).toLocaleTimeString()}`,
                     ].join("\n");
+
+                    if (message.state === "HOVER_FAILSAFE") {
+                        failsafeElement.textContent = `FAILSAFE ACTIVE: ${message.failsafeReason}`;
+                        failsafeElement.hidden = false;
+                    } else {
+                        failsafeElement.hidden = true;
+                        failsafeElement.textContent = "";
+                    }
                 }
 
                 if (message.type === "ack") {
@@ -136,6 +146,8 @@ async function joinOperator() {
             setControlsEnabled(false);
             leaveButton.disabled = true;
             joinButton.disabled = false;
+            failsafeElement.hidden = true;
+            failsafeElement.textContent = "";
         });
 
         setStatus(statusElement, "Connecting to LiveKit...");
@@ -262,4 +274,6 @@ function leaveOperator() {
     setControlsEnabled(false);
     leaveButton.disabled = true;
     joinButton.disabled = false;
+    failsafeElement.hidden = true;
+    failsafeElement.textContent = "";
 }
