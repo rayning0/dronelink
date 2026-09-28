@@ -62,12 +62,13 @@ type telemetry struct {
 }
 
 type drone struct {
-	mu            sync.Mutex
-	state         flightState
-	batteryPct    float64
-	altitudeM     float64
-	velocity      velocity
-	lastCommandAt *time.Time
+	mu             sync.Mutex
+	state          flightState
+	batteryPct     float64
+	altitudeM      float64
+	velocity       velocity
+	lastCommandAt  *time.Time
+	lastVelocityAt *time.Time
 }
 
 func newDrone() *drone {
@@ -103,6 +104,13 @@ func (d *drone) apply(command command) acknowledgement {
 		return ack
 	}
 
+	if command.Action == "set_velocity" &&
+		d.lastVelocityAt != nil &&
+		!command.SentAt.After(*d.lastVelocityAt) {
+		ack.Reason = "velocity command is older than the latest accepted velocity"
+		return ack
+	}
+
 	switch command.Action {
 	case "arm":
 		if d.state != stateDisarmed {
@@ -125,6 +133,9 @@ func (d *drone) apply(command command) acknowledgement {
 			return ack
 		}
 		d.velocity = command.Velocity
+
+		sentAt := command.SentAt
+		d.lastVelocityAt = &sentAt
 
 	case "land":
 		if d.state != stateFlying {
