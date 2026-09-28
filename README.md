@@ -10,7 +10,7 @@ disappears.
 
 ## Features
 
-- Simulated drone camera publishes webcam video; an operator subscribes through LiveKit's SFU.
+- Simulated drone camera publishes webcam video; an operator subscribes through [LiveKit's SFU](https://docs.livekit.io/reference/internals/livekit-sfu/).
 - Keyboard + button flight controls use LiveKit data messages.
 - Click buttons, in this order, to start flying the simulated drone:
   - `Arm → Take Off`
@@ -21,7 +21,7 @@ disappears.
   - **D**: right
   - **R**: up
   - **F**: down
-- Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude.
+- Click `Land` or `Return Home` buttons to land the drone. `Return Home` will first move drone image to center of **Flight Visualization** box, then lower it to 0 altitude. (`Return Home` models a safe UI sequence: it sends `return_home` command, animates return to home position, then sends a real `land` command. It is not yet a GPS/navigation planner.)
 - Go drone agent validates commands and returns acknowledgements and telemetry every 1 second.
 - **Drone Telemetry** in UI shows simulated:
   - flight state
@@ -53,21 +53,47 @@ disappears.
 
 ```mermaid
 flowchart LR
-    C[Drone camera browser<br/>WebRTC publisher] -->|video track| S[LiveKit SFU<br/>media forwarding]
-    S -->|WebRTC subscriber| O[Operator browser<br/>video + controls]
-    O -->|reliable data message<br/>flight command| S
-    S -->|data message| A[Go drone agent<br/>validation + state machine]
-    A -->|ack + telemetry| S
-    S -->|data message| O
-    T[Go token/control service<br/>/token + /health] -->|role token| C
-    T -->|role token| O
-    T -->|role token| A
-    A --> D[SimulatedDrone<br/>future MAVLink adapter boundary]
+    T[Go web/token service<br/>static UI + /token + /health]
+
+    C[Drone-camera browser<br/>getUserMedia + WebRTC publisher]
+    O[Operator browser<br/>video, controls, RTC stats]
+    S[Local LiveKit<br/>signaling, SFU, data routing]
+    A[Go drone agent<br/>validation + state machine]
+    D[Simulated drone<br/>future MAVLink adapter]
+
+    C -->|POST /token| T
+    T -->|camera JWT| C
+    O -->|POST /token| T
+    T -->|operator JWT| O
+
+    C <-->|WebRTC signaling +<br/>DTLS/SRTP video| S
+    S -->|forwarded video track| O
+
+    O -->|reliable: arm, takeoff,<br/>land, return_home| S
+    O -->|lossy at 8 Hz:<br/>set_velocity| S
+    S -->|data messages| A
+
+    A -->|reliable acknowledgement| S
+    A -->|lossy telemetry at 1 Hz| S
+    S -->|acknowledgements + telemetry| O
+
+    A <-->|LiveKit Go SDK<br/>dev API credentials| S
+    A -->|simulated state updates| D
 ```
 
-LiveKit supplies signaling and SFU functionality. The SFU forwards the encoded
-camera track without application-level decoding and re-encoding; the control
-plane remains separate from the media plane.
+LiveKit supplies signaling and SFU functions. The SFU forwards the encoded camera track without application-level decoding and re-encoding; the control plane remains separate from the media plane.
+
+DroneLink separates the media and control paths. The drone-camera browser obtains a role-scoped JWT token, captures webcam video, and publishes one WebRTC video track to LiveKit.
+
+LiveKit acts as an SFU: it forwards the encoded video track to the operator without transcoding.
+
+The operator gets the video and sends 2 types of data messages back:
+  - safety-critical lifecycle commands reliably: `Arm, Take Off, Land, Return Home`
+  - fresh velocity commands as lossy updates at 8 Hz: `Forward, Back, Left, Right, Up, Down`
+
+The Go drone agent validates sender identity, timestamps, ordering, and command IDs before changing its mutex-protected state machine. It returns reliable acknowledgements and drone telemetry once per second.
+
+The simulated-drone boundary is where I'd later integrate MAVLink or a companion-computer adapter.
 
 ## WebRTC and SFU concepts
 
@@ -89,17 +115,21 @@ validation, ordering, acknowledgement, and a safe failure policy.
 
 ## Go control plane and safety model
 
-The Go services use LiveKit's Go SDK and provide:
+The Go services use [LiveKit's Go SDK](https://github.com/livekit/server-sdk-go), built on the [Pion WebRTC](https://github.com/pion/webrtc), and give:
 
 - `/health` and role-scoped `/token` endpoints with short-lived JWTs.
 - Capabilities for `operator`, `drone-camera`, and `drone-agent` identities.
-- Structured logs for joins, commands, acknowledgements, and telemetry.
+- Structured logs for: 1) Drone agent joining a room, 2) Every operator command processed, 3) If velocity failsafe is activated.
 - A mutex-protected simulated drone state machine.
 - Command IDs for idempotency: duplicates acknowledge without reapplying.
 - Timestamp validation and monotonic ordering for velocity commands.
 - Sender authorization requiring an operator identity.
-- A 500 ms dead-man velocity failsafe and immediate stop on disconnect.
-- Explicit `DISARMED`, `ARMED`, `FLYING`, `LANDING`, and `HOVER_FAILSAFE` states for the drone. Its state machine may only change in this order: `DISARMED → ARMED → FLYING → LANDING → DISARMED`.
+- A 500 ms dead-man velocity failsafe. It sets velocity to 0 after no new command for 500 ms.
+- The main flight path (state machine) moves through these states, in order: `DISARMED → ARMED → FLYING → LANDING → DISARMED`. If operator loses contact with drone, it changes state from `FLYING → HOVER_FAILSAFE`. After reconnecting to drone, new velocity commands switch state back to `FLYING`.
+
+Pion WebRTC is a pure Go implementation of the WebRTC API. It does low-level media handling, networking protocols (like ICE, DTLS, and SRTP), and RTP/RTCP packet parsing.
+
+The LiveKit Go SDK interacts with LiveKit server APIs, manages rooms, does SFU architecture orchestration, and generate access tokens from a Go backend.
 
 These mechanisms demonstrate Go concurrency and shared-state protection in a
 real-time system where responsiveness must not weaken command safety.
@@ -143,9 +173,9 @@ LIVEKIT_API_SECRET=secret
 
 4. Open 2 pages in your browser:
 
-http://localhost:8080/drone.html shows the simulated drone camera. Click "Join as drone camera." It turns on your webcam and starts sending video to the LiveKit SFU server.
+http://localhost:8080/drone.html shows the simulated drone camera. Click **Join as drone camera**. It turns on your webcam and starts sending video to the LiveKit SFU server. It requests webcam access, gets a camera-scoped JWT token from the local Go service, and joins the LiveKit room as a WebRTC publisher. The browser sends the encoded webcam video track over DTLS/SRTP to the local LiveKit SFU.
 
-http://localhost:8080/operator.html shows the simulated drone operator. Click "Join as operator." It shows real-time video sent by the LiveKit SFU.
+http://localhost:8080/operator.html shows the simulated drone operator. Click **Join as operator**. It shows real-time video sent by the LiveKit SFU. It gets an operator-scoped JWT token, joins the same room, and subscribes to that forwarded video track. In this local demo, the selected ICE path is `host → host`, so the active media path stays local. The operator also reads browser WebRTC stats like RTT, jitter, loss, and inbound bitrate.
 
 5. Fly drone:
 
@@ -170,6 +200,34 @@ http://localhost:8080/operator.html shows the simulated drone operator. Click "J
   - Publishes telemetry saying why it changed.
   - When you reload http://localhost:8080/operator.html and rejoin as operator, it shows a red failsafe banner on top.
   - If you start flying the drone again, it changes back to `FLYING` state and the red banner disappears.
+
+## Code and Software Tests
+
+### Main code
+
+- [main.go](https://github.com/rayning0/dronelink/blob/main/main.go) — Go web and token service. Serves the browser UI, exposes `/health`, and issues role-scoped LiveKit JWTs with `/token`.
+- [drone-agent/main.go](https://github.com/rayning0/dronelink/blob/main/drone-agent/main.go) — Go simulated drone agent. Receives LiveKit data messages, validates commands, manages the flight-state machine, publishes acknowledgements/telemetry, and enforces the 500 ms velocity failsafe.
+- [web/operator.js](https://github.com/rayning0/dronelink/blob/main/web/operator.js) — Operator console behavior: subscribes to video, sends reliable and lossy commands, renders telemetry, reads browser WebRTC statistics, and runs the flight visualization.
+- [web/drone.html](https://github.com/rayning0/dronelink/blob/main/web/drone.html) — Simulated drone-camera browser: captures webcam video and publishes it to the LiveKit room.
+
+### Software tests
+
+[drone-agent/main_test.go](https://github.com/rayning0/dronelink/blob/main/drone-agent/main_test.go) has unit tests for the simulated drone's command-validation and safety behavior. Run tests:
+
+```
+go test ./...
+```
+
+The tests verify:
+- **Takeoff while disarmed is rejected** — prevents an invalid flight transition.
+- **Arm then takeoff succeeds** — verifies the valid `DISARMED → ARMED → FLYING` path.
+- **Stale command is rejected** — prevents delayed commands from being applied.
+- **Duplicate command is not reapplied** — verifies command-ID idempotency.
+- **Rejected command IDs can be retried** — a command rejected in one state can be retried after the drone reaches a valid state.
+- **Duplicate velocity does not delay failsafe** — replayed velocity data cannot keep a drone moving indefinitely.
+- **Older velocity is rejected** — prevents out-of-order movement commands from overriding newer intent.
+- **Loss of velocity commands triggers failsafe** — after 500 ms without fresh movement updates, velocity becomes 0 and the drone enters `HOVER_FAILSAFE`.
+- **Landing returns to a safe state** — checks landing clears velocity and returns the simulated drone to `DISARMED` at zero altitude.
 
 ## Production roadmap
 
