@@ -14,6 +14,8 @@ import (
 	lksdk "github.com/livekit/server-sdk-go/v2"
 )
 
+var eventLogger = log.New(os.Stdout, "", 0)
+
 const (
 	roomName         = "demo"
 	agentIdentity    = "drone-agent-01"
@@ -29,6 +31,7 @@ const (
 	stateLanding            flightState = "LANDING"
 	stateHoverFailsafe      flightState = "HOVER_FAILSAFE"
 	velocityFailsafeTimeout             = 500 * time.Millisecond
+	velocityFailsafeReason              = "no new velocity command received in at least 500 ms"
 )
 
 type velocity struct {
@@ -195,7 +198,7 @@ func (d *drone) enforceVelocityFailsafe(now time.Time) bool {
 
 	d.velocity = velocity{}
 	d.state = stateHoverFailsafe
-	d.failsafeReason = "no new velocity command received in at least 500 ms"
+	d.failsafeReason = velocityFailsafeReason
 
 	return true
 }
@@ -273,14 +276,20 @@ func main() {
 			return
 		}
 
-		log.Printf(
-			"command received from %s: id=%s action=%s",
-			params.SenderIdentity,
-			command.ID,
-			command.Action,
-		)
-
 		ack := simulatedDrone.apply(command)
+
+		logEvent("command_processed", map[string]any{
+			"room_id":        room.SID(),
+			"room_name":      room.Name(),
+			"drone_id":       agentIdentity,
+			"operator_id":    params.SenderIdentity,
+			"command_id":     command.ID,
+			"command_action": command.Action,
+			"accepted":       ack.Accepted,
+			"reason":         ack.Reason,
+			"state":          ack.State,
+		})
+
 		if err := publishJSON(room.LocalParticipant, ack, true); err != nil {
 			log.Printf("publishing acknowledgement: %v", err)
 		}
@@ -303,6 +312,11 @@ func main() {
 	defer room.Disconnect()
 
 	log.Printf("joined room %q as %q", roomName, agentIdentity)
+	logEvent("drone_agent_joined", map[string]any{
+		"room_id":   room.SID(),
+		"room_name": room.Name(),
+		"drone_id":  agentIdentity,
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -321,7 +335,13 @@ func main() {
 
 		case <-failsafeTicker.C:
 			if simulatedDrone.enforceVelocityFailsafe(time.Now()) {
-				log.Println("velocity failsafe activated: entering HOVER_FAILSAFE")
+				logEvent("velocity_failsafe_activated", map[string]any{
+					"room_id":   room.SID(),
+					"room_name": room.Name(),
+					"drone_id":  agentIdentity,
+					"reason":    velocityFailsafeReason,
+					"state":     stateHoverFailsafe,
+				})
 			}
 
 		case <-telemetryTicker.C:
@@ -358,4 +378,23 @@ func requiredEnv(name string) string {
 		log.Fatalf("%s must be set", name)
 	}
 	return value
+}
+
+func logEvent(event string, fields map[string]any) {
+	record := make(map[string]any, len(fields)+2)
+
+	record["timestamp"] = time.Now().UTC().Format(time.RFC3339Nano)
+	record["event"] = event
+
+	for key, value := range fields {
+		record[key] = value
+	}
+
+	payload, err := json.Marshal(record)
+	if err != nil {
+		log.Printf("encoding structured log: %v", err)
+		return
+	}
+
+	eventLogger.Println(string(payload))
 }
