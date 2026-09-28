@@ -33,6 +33,54 @@
       font-weight: 700;
       padding: 12px;
     }
+
+    .flight-state {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin: 12px 0;
+    }
+
+    .flight-state span {
+      padding: 4px 8px;
+      border-radius: 4px;
+      color: #555;
+    }
+
+    .flight-state .current {
+      background: #0077FF;
+      color: white;
+      font-weight: 700;
+    }
+
+    .telemetry-panels {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 64px;
+      align-items: start;
+    }
+
+    .telemetry-panels section {
+      min-width: 0;
+    }
+
+    .telemetry-panels section:last-child {
+      position: relative;
+      left: -38px;
+    }
+
+    .telemetry-panels pre {
+      text-align: left;
+    }
+
+    .movement-keyboard {
+      display: block;
+      width: 273px;
+      max-width: 100%;
+      height: auto;
+      margin: 16px 0 8px;
+    }
   </style>
 </head>
 
@@ -48,29 +96,45 @@
     <p>Waiting for drone camera...</p>
   </div>
 
-  <section>
-    <h2>WebRTC Link Health</h2>
-    <pre id="link-health">Waiting for video statistics...</pre>
-  </section>
+  <div class="telemetry-panels">
+    <section>
+      <h2>WebRTC Link Health</h2>
+      <pre id="link-health">Waiting for video statistics...</pre>
+    </section>
+
+    <section>
+      <h2>Drone Telemetry</h2>
+      <pre id="telemetry">Waiting for telemetry...</pre>
+    </section>
+  </div>
 
   <section>
     <h2>Flight Controls</h2>
+    <div id="flight-state" class="flight-state" aria-label="Current flight state">
+      <span data-state="DISARMED">DISARMED</span>
+      <span aria-hidden="true">→</span>
+      <span data-state="ARMED">ARMED</span>
+      <span aria-hidden="true">→</span>
+      <span data-state="FLYING">FLYING</span>
+      <span aria-hidden="true">→</span>
+      <span data-state="LANDING">LANDING</span>
+      <span aria-hidden="true">→</span>
+      <span data-state="DISARMED">DISARMED</span>
+    </div>
 
     <button id="arm" disabled>Arm</button>
     <button id="takeoff" disabled>Take Off</button>
     <button id="land" disabled>Land</button>
     <button id="return-home" disabled>Return Home</button>
 
+    <img class="movement-keyboard" src="/keyboard.jpg"
+      alt="Keyboard movement controls: W forward, S back, A left, D right, R up, and F down">
+
     <p>
-      Movement: hold <strong>W/S</strong> for forward/back,
-      <strong>A/D</strong> for left/right, and
+      Move drone: hold <strong>W/S</strong> for forward/back,
+      <strong>A/D</strong> for left/right,
       <strong>R/F</strong> for up/down.
     </p>
-  </section>
-
-  <section>
-    <h2>Drone Telemetry</h2>
-    <pre id="telemetry">Waiting for telemetry...</pre>
   </section>
 
   <section>

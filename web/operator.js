@@ -4,6 +4,7 @@ const armButton = document.querySelector("#arm");
 const takeoffButton = document.querySelector("#takeoff");
 const landButton = document.querySelector("#land");
 const returnHomeButton = document.querySelector("#return-home");
+const flightStateElement = document.querySelector("#flight-state");
 
 const statusElement = document.querySelector("#status");
 const remoteVideo = document.querySelector("#remote-video");
@@ -25,6 +26,12 @@ let statsTimer;
 let previousInboundVideoStats;
 let connectionState = "not connected";
 const pressedKeys = new Set();
+
+function updateFlightState(state) {
+    for (const stateElement of flightStateElement.querySelectorAll("[data-state]")) {
+        stateElement.classList.toggle("current", stateElement.dataset.state === state);
+    }
+}
 
 joinButton.addEventListener("click", joinOperator);
 leaveButton.addEventListener("click", leaveOperator);
@@ -117,6 +124,7 @@ async function joinOperator() {
                 }
 
                 if (message.type === "telemetry") {
+                    updateFlightState(message.state);
                     telemetryElement.textContent = [
                         `State: ${message.state}`,
                         `Battery: ${message.batteryPct.toFixed(2)}%`,
@@ -137,6 +145,7 @@ async function joinOperator() {
                 }
 
                 if (message.type === "ack") {
+                    updateFlightState(message.state);
                     acknowledgementElement.textContent = [
                         `Command: ${message.action}`,
                         `Command ID: ${message.commandId}`,
