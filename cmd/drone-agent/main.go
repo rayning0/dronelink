@@ -80,12 +80,14 @@ type drone struct {
 	lastVelocityAt         *time.Time
 	lastVelocityReceivedAt *time.Time
 	lastTelemetryAt        time.Time
+	processedCommandIDs    map[string]struct{}
 }
 
 func newDrone() *drone {
 	return &drone{
-		state:      stateDisarmed,
-		batteryPct: 100,
+		state:               stateDisarmed,
+		batteryPct:          100,
+		processedCommandIDs: make(map[string]struct{}),
 	}
 }
 
@@ -112,6 +114,13 @@ func (d *drone) apply(command command) acknowledgement {
 		now.Sub(command.SentAt) > 2*time.Second ||
 		command.SentAt.After(now.Add(2*time.Second)) {
 		ack.Reason = "command timestamp is invalid or stale"
+		return ack
+	}
+
+	if _, alreadyProcessed := d.processedCommandIDs[command.ID]; alreadyProcessed {
+		ack.Accepted = true
+		ack.Reason = "duplicate command ID: acknowledged without reapplying"
+		ack.State = d.state
 		return ack
 	}
 
@@ -178,6 +187,7 @@ func (d *drone) apply(command command) acknowledgement {
 	ack.Accepted = true
 	d.lastCommandAt = &now
 	ack.State = d.state
+	d.processedCommandIDs[command.ID] = struct{}{}
 	return ack
 }
 
