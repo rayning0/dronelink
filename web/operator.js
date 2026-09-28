@@ -12,6 +12,9 @@ const telemetryElement = document.querySelector("#telemetry");
 const acknowledgementElement = document.querySelector("#acknowledgement");
 const failsafeElement = document.querySelector("#failsafe");
 const linkHealthElement = document.querySelector("#link-health");
+const flightStageElement = document.querySelector("#flight-stage");
+const lateralDroneElement = document.querySelector("#lateral-drone");
+const altitudeDroneElement = document.querySelector("#altitude-drone");
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -26,6 +29,8 @@ let statsTimer;
 let previousInboundVideoStats;
 let connectionState = "not connected";
 const pressedKeys = new Set();
+const lateralPosition = { x: 0, y: 0 };
+let altitudePosition = 0;
 
 function updateFlightState(state) {
     for (const stateElement of flightStateElement.querySelectorAll("[data-state]")) {
@@ -54,6 +59,7 @@ window.addEventListener("keydown", (event) => {
     pressedKeys.add(key);
 
     if (!wasAlreadyPressed) {
+        updateFlightVisualization();
         void sendVelocity();
     }
 });
@@ -70,6 +76,7 @@ window.addEventListener("keyup", (event) => {
 
     // Send an immediate stop/update when a key is released.
     void sendVelocity();
+    updateFlightVisualization();
 });
 
 async function joinOperator() {
@@ -165,6 +172,7 @@ async function joinOperator() {
         room.on(LivekitClient.RoomEvent.Disconnected, () => {
             stopMovementLoop();
             pressedKeys.clear();
+            resetFlightVisualization();
             setStatus(statusElement, "Disconnected");
             remoteVideo.innerHTML = "<p>Waiting for drone camera...</p>";
             setControlsEnabled(false);
@@ -276,6 +284,7 @@ function startMovementLoop() {
     // 8 Hz: fresh velocity commands replace old ones quickly.
     movementTimer = window.setInterval(() => {
         if (pressedKeys.size > 0) {
+            updateFlightVisualization();
             void sendVelocity();
         }
     }, 125);
@@ -288,9 +297,57 @@ function stopMovementLoop() {
     }
 }
 
+function updateFlightVisualization() {
+    const isMoving = pressedKeys.size > 0;
+    flightStageElement.classList.toggle("is-moving", isMoving);
+
+    if (!isMoving) {
+        return;
+    }
+
+    const lateralStep = 7;
+    const altitudeStep = 7;
+
+    // W is forward/up on the top-down map; S is backward/down.
+    lateralPosition.y += lateralStep * (
+        Number(pressedKeys.has("s")) - Number(pressedKeys.has("w"))
+    );
+    lateralPosition.x += lateralStep * (
+        Number(pressedKeys.has("d")) - Number(pressedKeys.has("a"))
+    );
+
+    // R ascends on the side view; F descends.
+    altitudePosition += altitudeStep * (
+        Number(pressedKeys.has("f")) - Number(pressedKeys.has("r"))
+    );
+
+    lateralPosition.x = clamp(lateralPosition.x, -42, 42);
+    lateralPosition.y = clamp(lateralPosition.y, -42, 42);
+    altitudePosition = clamp(altitudePosition, -42, 42);
+
+    lateralDroneElement.style.transform =
+        `translate(calc(-50% + ${lateralPosition.x}px), calc(-50% + ${lateralPosition.y}px))`;
+    altitudeDroneElement.style.transform =
+        `translate(-50%, calc(-50% + ${altitudePosition}px))`;
+}
+
+function resetFlightVisualization() {
+    lateralPosition.x = 0;
+    lateralPosition.y = 0;
+    altitudePosition = 0;
+    flightStageElement.classList.remove("is-moving");
+    lateralDroneElement.style.transform = "translate(-50%, -50%)";
+    altitudeDroneElement.style.transform = "translate(-50%, -50%)";
+}
+
+function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+}
+
 function leaveOperator() {
     stopMovementLoop();
     pressedKeys.clear();
+    resetFlightVisualization();
 
     room?.disconnect();
     room = undefined;

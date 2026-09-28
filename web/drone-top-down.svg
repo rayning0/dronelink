@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Top-down quadcopter">
+  <g fill="none" stroke="#1d3445" stroke-width="7" stroke-linecap="round">
+    <path d="M25 25 75 75M75 25 25 75"/>
+  </g>
+  <g fill="#4dc4ff" stroke="#1d3445" stroke-width="5">
+    <circle cx="20" cy="20" r="13"/><circle cx="80" cy="20" r="13"/>
+    <circle cx="20" cy="80" r="13"/><circle cx="80" cy="80" r="13"/>
+  </g>
+  <path d="M50 20 67 57 50 80 33 57Z" fill="#1689c7" stroke="#1d3445" stroke-width="5"/>
+  <path d="M50 28 57 48 50 43 43 48Z" fill="#e8f8ff"/>
+</svg>
