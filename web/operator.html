@@ -31,13 +31,13 @@
 
     .flight-visualizer {
       display: none;
-      flex: 1 1 50%;
+      flex: 1 1 calc(66.666% - 8px);
       gap: 12px;
       min-width: 0;
     }
 
     .flight-stage.is-moving #remote-video {
-      flex-basis: 50%;
+      flex: 1 1 calc(33.333% - 8px);
     }
 
     .flight-stage.is-moving .flight-visualizer {
@@ -54,7 +54,7 @@
     .flight-map,
     .altitude-lane {
       position: relative;
-      height: 203px;
+      height: 275px;
       overflow: hidden;
       border: 1px solid #b8c4d1;
       border-radius: 8px;
@@ -95,8 +95,8 @@
       position: absolute;
       left: 50%;
       top: 50%;
-      width: 54px;
-      height: 54px;
+      width: 70px;
+      height: 70px;
       transform: translate(-50%, -50%);
       transition: transform 100ms linear;
     }

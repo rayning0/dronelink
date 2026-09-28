@@ -31,6 +31,8 @@ let connectionState = "not connected";
 const pressedKeys = new Set();
 const lateralPosition = { x: 0, y: 0 };
 let altitudePosition = 0;
+let isFlightSequenceRunning = false;
+const flightVisualizationEdgePadding = 8;
 
 function updateFlightState(state) {
     for (const stateElement of flightStateElement.querySelectorAll("[data-state]")) {
@@ -44,7 +46,7 @@ leaveButton.addEventListener("click", leaveOperator);
 armButton.addEventListener("click", () => sendReliableCommand("arm"));
 takeoffButton.addEventListener("click", () => sendReliableCommand("takeoff"));
 landButton.addEventListener("click", () => sendReliableCommand("land"));
-returnHomeButton.addEventListener("click", () => sendReliableCommand("return_home"));
+returnHomeButton.addEventListener("click", () => void returnHomeAndLand());
 
 window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
@@ -54,6 +56,10 @@ window.addEventListener("keydown", (event) => {
     }
 
     event.preventDefault();
+
+    if (isFlightSequenceRunning) {
+        return;
+    }
 
     const wasAlreadyPressed = pressedKeys.has(key);
     pressedKeys.add(key);
@@ -206,7 +212,7 @@ function setControlsEnabled(enabled) {
 }
 
 async function sendReliableCommand(action) {
-    await publishCommand(
+    return publishCommand(
         {
             type: "command",
             id: crypto.randomUUID(),
@@ -253,7 +259,7 @@ async function sendVelocity() {
 
 async function publishCommand(command, reliable) {
     if (!room) {
-        return;
+        return false;
     }
 
     try {
@@ -272,9 +278,54 @@ async function publishCommand(command, reliable) {
                 ? `Sent reliable ${command.action} command`
                 : "Sending live velocity commands",
         );
+        return true;
     } catch (error) {
         console.error("Could not publish command:", error);
         setStatus(statusElement, `Command failed: ${error.message}`, true);
+        return false;
+    }
+}
+
+async function returnHomeAndLand() {
+    if (!room || isFlightSequenceRunning) {
+        return;
+    }
+
+    isFlightSequenceRunning = true;
+    returnHomeButton.disabled = true;
+    pressedKeys.clear();
+    void sendVelocity();
+    flightStageElement.classList.add("is-moving");
+
+    const returnHomeSent = await sendReliableCommand("return_home");
+    if (!returnHomeSent) {
+        finishReturnHomeSequence();
+        return;
+    }
+
+    setStatus(statusElement, "Returning home: moving to the home position...");
+    await animateLateralDroneToCenter();
+
+    // This is a separate, real reliable command. It is deliberately not sent
+    // until the return-home visualization has reached the center.
+    const landSent = await sendReliableCommand("land");
+    if (!landSent) {
+        finishReturnHomeSequence();
+        return;
+    }
+
+    setStatus(statusElement, "Landing at home...");
+    await animateAltitudeDroneToBottom();
+    setStatus(statusElement, "Landed at home. Holding the completed flight view...");
+    await wait(10000);
+    finishReturnHomeSequence();
+}
+
+function finishReturnHomeSequence() {
+    isFlightSequenceRunning = false;
+    resetFlightVisualization();
+    if (room) {
+        returnHomeButton.disabled = false;
     }
 }
 
@@ -298,7 +349,7 @@ function stopMovementLoop() {
 }
 
 function updateFlightVisualization() {
-    const isMoving = pressedKeys.size > 0;
+    const isMoving = pressedKeys.size > 0 || isFlightSequenceRunning;
     flightStageElement.classList.toggle("is-moving", isMoving);
 
     if (!isMoving) {
@@ -321,17 +372,74 @@ function updateFlightVisualization() {
         Number(pressedKeys.has("f")) - Number(pressedKeys.has("r"))
     );
 
-    lateralPosition.x = clamp(lateralPosition.x, -42, 42);
-    lateralPosition.y = clamp(lateralPosition.y, -42, 42);
-    altitudePosition = clamp(altitudePosition, -42, 42);
+    const lateralXLimit = movementLimit(lateralDroneElement, "width");
+    const lateralYLimit = movementLimit(lateralDroneElement, "height");
+    const altitudeYLimit = movementLimit(altitudeDroneElement, "height");
 
+    lateralPosition.x = clamp(lateralPosition.x, -lateralXLimit, lateralXLimit);
+    lateralPosition.y = clamp(lateralPosition.y, -lateralYLimit, lateralYLimit);
+    altitudePosition = clamp(altitudePosition, -altitudeYLimit, altitudeYLimit);
+
+    renderFlightVisualization();
+}
+
+function renderFlightVisualization() {
     lateralDroneElement.style.transform =
         `translate(calc(-50% + ${lateralPosition.x}px), calc(-50% + ${lateralPosition.y}px))`;
     altitudeDroneElement.style.transform =
         `translate(-50%, calc(-50% + ${altitudePosition}px))`;
 }
 
+async function animateLateralDroneToCenter() {
+    const startingX = lateralPosition.x;
+    const startingY = lateralPosition.y;
+
+    await animateOver(5000, (progress) => {
+        lateralPosition.x = startingX * (1 - progress);
+        lateralPosition.y = startingY * (1 - progress);
+        renderFlightVisualization();
+    });
+}
+
+async function animateAltitudeDroneToBottom() {
+    const startingY = altitudePosition;
+    const lane = altitudeDroneElement.parentElement;
+    const bottomY = Math.max(
+        0,
+        lane.clientHeight / 2 - altitudeDroneElement.clientHeight / 2 - flightVisualizationEdgePadding,
+    );
+
+    await animateOver(5000, (progress) => {
+        altitudePosition = startingY + (bottomY - startingY) * progress;
+        renderFlightVisualization();
+    });
+}
+
+function animateOver(durationMs, onProgress) {
+    return new Promise((resolve) => {
+        const startedAt = performance.now();
+
+        function frame(now) {
+            const progress = Math.min(1, (now - startedAt) / durationMs);
+            onProgress(progress);
+
+            if (progress < 1) {
+                requestAnimationFrame(frame);
+            } else {
+                resolve();
+            }
+        }
+
+        requestAnimationFrame(frame);
+    });
+}
+
+function wait(durationMs) {
+    return new Promise((resolve) => window.setTimeout(resolve, durationMs));
+}
+
 function resetFlightVisualization() {
+    isFlightSequenceRunning = false;
     lateralPosition.x = 0;
     lateralPosition.y = 0;
     altitudePosition = 0;
@@ -342,6 +450,14 @@ function resetFlightVisualization() {
 
 function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), maximum);
+}
+
+function movementLimit(marker, dimension) {
+    const container = marker.parentElement;
+    const containerSize = dimension === "width" ? container.clientWidth : container.clientHeight;
+    const markerSize = dimension === "width" ? marker.clientWidth : marker.clientHeight;
+
+    return Math.max(0, containerSize / 2 - markerSize / 2 - flightVisualizationEdgePadding);
 }
 
 function leaveOperator() {
