@@ -1,0 +1,95 @@
+[Show: 1 page with labelled images: Video meetings, emergency response, telehealth, remote inspection, teleoperation, military.]
+
+How can Zoom have 1000 people in 1 video call?
+
+What makes a live video call different from watching a TV channel? Low delay (also called "latency") + fast 2-way communication.
+
+A streaming TV channel can be seconds behind real life. Fine for entertainment. But not fine when you must quickly react to what you see.
+
+Imagine remotely flying a drone at 40 mph. In half a second, it travels 30 feet before the operator can react. Far enough to miss a target or crash.
+
+Think of video calls, police/fire rescues, military vehicles, telesurgery, remote inspections, + self-driving cars. All need fast, 2-way communication.
+
+That’s why interactive systems use WebRTC (Web Real-Time Communication), an open standard that lets browsers + apps send live video, audio, + data with very low delay. It’s for apps that must feel immediate.
+
+Last weekend, I built "DroneLink: a low-latency RemoteOps simulator." It simulates a human operator monitoring + flying a drone. I built it in Go, JavaScript, LiveKit, and WebRTC in 2 days.
+
+[Show live video in 2 browser tabs.]
+
+On the left is my simulated drone camera. My webcam is standing in for an onboard drone camera.
+
+On the right is the operator console. When I join both sides, the operator receives the live video through LiveKit, the media-routing server in this project.
+
+The drone sends 1 video stream to a server called an SFU, or "Selective Forwarding Unit." Think of it as a smart traffic director for live video.
+
+Without it, the drone must send a separate copy of its video directly to every operator or viewer. With 10 viewers, it must upload the same video 10 times, quickly overwhelming the drone’s network connection.
+
+Instead, the drone uploads 1 copy to the SFU. The SFU then forwards that stream to each authorized viewer. Then it can support multiple operators, supervisors, or incident responders, keeping the drone’s bandwidth + processing work low.
+
+In DroneLink, LiveKit is the SFU. It forwards the live camera video, instead of having my app decode and re-encode it.
+
+[Show controls, telemetry, and visualization. Click Arm, then Take Off, then briefly hold W, A/D, and R/F.]
+
+The drone operator can arm, take off, move, land, and return home. The 2 animated drones are a simulation. They make the control flow visible, while the webcam video is a real WebRTC stream.
+
+The simulated drone agent sends back telemetry once a second: flight state, altitude, battery, velocity, and the last command it accepted.
+
+[Show "Return Home"]
+
+Let's make the drone "Return Home"! First, the top-view drone moves back to the center of its flight area, its simulated home position.
+
+Then the side-view drone descends to the bottom, showing a landing.
+
+This is not just an animation: the operator first sends a reliable "Return Home" command. Once the top-view drone moves "Home" to its center, it sends a real reliable "Land" command to the Go drone agent. The side-view drone then lands.
+
+We don't have GPS navigation or mission planning here, but it shows how a RemoteOps interface can make an automated safety workflow clear to an operator.
+
+[Explain reliable versus fresh commands simply]
+
+What are "reliable" commands? Not every drone message is treated the same. “Land” must arrive. But move (or velocity) commands are constantly replaced by newer movement commands.
+
+So DroneLink sends safety-critical commands "reliably," but sends fresh velocity updates repeatedly. If one move update is lost, the next one quickly replaces it.
+
+The drone agent tells the operator if it accepts or rejects each command.
+
+The safety feature I care most about is the "dead-man failsafe." What if you suddenly lose contact with your drone while flying it at high speed? We don't want it to keep moving and crash. We want it to stop moving, but hover in place.
+
+[Demo dead-man failsafe. While down "W" key, click "Leave". Then reload operator page.]
+
+If the drone is already moving, but you lose connection and fresh velocity messages stop for 500 ms, the drone agent zeros its velocity, then enters a "HOVER_FAILSAFE" state. This affects safety, since an operator can't send a final “stop” message. When you reconnect to your drone, you can resume flying from this hover spot.
+
+[Show WebRTC Link Health]
+
+This part shows real WebRTC data connection information from the browser: delay, packet loss, jitter, bitrate, and if the connection is direct or needs a relay.
+
+These local numbers look excellent, since everything is running on my computer. In a real deployment, this data helps us detect poor links and fix quality issues.
+
+[Show Mermaid diagram. Light software architecture.]
+
+My software design deliberately separates the media plane from the control path. The camera browser sends low-latency video to LiveKit, and LiveKit forwards it to the operator. Separately, the operator sends authenticated control messages to the Go drone agent. The agent validates them, changes simulated drone state, and returns telemetry.
+
+That boundary at the bottom is deliberate: today it's a simulator. Later it could be a MAVLink adapter talking to a real flight controller or companion computer.
+
+[Technical appendix: 5:00-6:00]
+
+Till now, I've told the product story. For engineers, here's my software code in 1 minute.
+
+[Show main.go /token handler]
+
+This Go endpoint issues short-lived, role-scoped tokens for authorization. The operator can receive video + send control data, but cannot publish a camera track. The camera role can publish media.
+
+[Show drone-agent/main.go, only apply() and enforceVelocityFailsafe()]
+
+The drone agent validates timestamps, rejects stale velocity commands, and makes command IDs idempotent. It uses a mutex to serialize access to shared state, and a state machine to enforce allowed transitions like disarmed, armed, flying, landing, and hover fail-safe. The failsafe independently checks every 100 ms for missing fresh velocity commands.
+
+[Show main_test.go]
+
+I have unit tests for invalid takeoff, stale and duplicate commands, out-of-order velocity, the dead-man timeout, and landing back to a safe state. For velocity, newer timestamps win, so an old delayed “fly forward” command may not override a newer control update.
+
+[Show operator.js, only publishCommand() / sendVelocity()]
+
+On the browser side, this reliability choice is explicit: lifecycle commands are reliable; velocity is sent as fresh lossy data at 8 Hz.
+
+[Close]
+
+DroneLink is a small prototype, but it gave me hands-on experience with the central RemoteOps problems: low-latency media, SFU routing, real-time command delivery, observability, and failure-safe behavior. Thank you for watching!
