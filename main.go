@@ -87,6 +87,7 @@ func main() {
 		writeJSON(w, http.StatusOK, tokenResponse{Token: token})
 	})
 
+	mux.Handle("/img/", http.StripPrefix("/img/", http.FileServer(http.Dir("img"))))
 	mux.Handle("/", http.FileServer(http.Dir("web")))
 
 	log.Println("control plane listening on http://127.0.0.1:8080")
