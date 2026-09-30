@@ -4,6 +4,14 @@ By Raymond Gan
 
 DroneLink is a local [LiveKit](https://github.com/livekit/livekit)-based simulator for remote drone operations. It combines a browser WebRTC media plane with a Golang control plane to explore low latency, network quality, authorization, command ordering, telemetry, and safe behavior when connectivity or operator input disappears.
 
+```mermaid
+flowchart LR
+    D[Drone camera] -->|live video| S[LiveKit SFU]
+    S -->|live video| O[Operator]
+    O -->|control commands| S
+    S -->|commands + telemetry| D
+```
+
 ## Features
 
 - Simulated drone camera publishes webcam video; an operator subscribes through [LiveKit's SFU](https://docs.livekit.io/reference/internals/livekit-sfu/).
