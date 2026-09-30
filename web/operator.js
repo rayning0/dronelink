@@ -317,7 +317,7 @@ async function returnHomeAndLand() {
     setStatus(statusElement, "Landing at home...");
     await animateAltitudeDroneToBottom();
     setStatus(statusElement, "Landed at home. Holding the completed flight view...");
-    await wait(10000);
+    await wait(5000);
     finishReturnHomeSequence();
 }
 
