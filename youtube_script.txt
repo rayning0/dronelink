@@ -1,40 +1,47 @@
+[Title Slide]
+
+Last weekend, I built DroneLink in 2 days, a low-latency RemoteOps simulator for drones, in Go, JavaScript, LiveKit, and WebRTC.
+
 [Show why_webrtc_matters.jpg: a slide labelled "Video calls, remote inspection, emergency response, teleoperation."]
 
-What makes a live video call different from streaming TV? Low delay (or latency) and fast two-way communication. Video calls, police/fire rescue, telehealth, the military, etc. all use WebRTC (Web Real-Time Communication).
+How can 1000 people talk in 1 Zoom call with no errors? The answer is WebRTC (or Web Real-Time Communication.) It gives you fast 2-way communication, low delay, in real-time.
 
-[Show webrtc_latency.png]
-
-That matters for drones. At 40 mph, a drone flies 30 feet in half a second. It could crash with slower communication. Last weekend, I built DroneLink in 2 days: a low-latency RemoteOps simulator in Go, JavaScript, LiveKit, and WebRTC.
+Video calls, police/fire rescue, and the military all use WebRTC for critical, fast, interactive apps.
 
 [Show live video in 2 browser tabs.]
 
-On the left is the simulated drone camera: my webcam stands in for an onboard camera. On the right is the operator console, getting live video through LiveKit.
+On the left is the simulated drone camera. Since I have no drone, my webcam is it. On the right is the operator console, getting the drone's live video through LiveKit.
+
+[Joins as drone.] Hey guys, I'm Raymond the Drone!
+[Joins as operator.] I'm also Raymond the Operator. What a coincidence!
+
+For drones, even half a second communication delay is too slow. At 40 mph, a drone flies 30 feet and could crash. That's why we need WebRTC.
 
 [Show mermaid_dronekit_simple.png]
 
-LiveKit is an SFU, or Selective Forwarding Unit, a smart traffic director. The drone uploads 1 video stream to LiveKit, which can forward it to an operator or other authorized viewers. The operator sends control commands back. The drone does not upload the same video separately to everyone.
+LiveKit is an SFU, or Selective Forwarding Unit, a traffic router. The drone uploads 1 video stream to LiveKit, which forwards it to an operator. What if 10 operators want to see it? The SFU decides who sees it in what quality. The operator also sends control commands back.
 
 [Show Arm, Take Off, brief movement, telemetry, and animated drone visuals.]
 
-The operator can arm, take off, move, land, and return home. The animated drones are a simulation that makes control visible; the webcam video is real WebRTC. The Go agent returns state, altitude, battery, velocity, and command telemetry.
+Now let's take flight! We can arm, take off, move, land, and return home. The animated drones are a simulation, but the webcam video is real WebRTC. The Go agent returns state, battery, altitude, velocity, and command telemetry.
 
 [Show Return Home. Speed up the long hold after landing.]
 
-Here is Return Home. The top-view drone returns home, then the side-view drone lands. Cool, huh?
+Now let's Return Home! The top-view drone returns home, then the side-view drone lands. Cool, huh?
 
 What if the operator suddenly loses connection to the drone while it's still moving? It should stop moving, so it won't crash. This is a safety feature called the dead-man failsafe.
 
-[Demonstrate dead-man failsafe: move with W, click Leave, rejoin and show HOVER_FAILSAFE.]
+[Demo dead-man failsafe: move drone with W, click Leave, rejoin and show HOVER_FAILSAFE.]
 
-If the drone is moving and fresh movement updates stop for 500 ms, the Go agent stops in mid-air (0 velocity) and hovers in "HOVER_FAILSAFE" state.
+If the drone is moving and fresh movement updates stop for 500 ms, the drone stops in mid-air (0 velocity) and hovers in "HOVER_FAILSAFE" state. See the red banner?
 
 [Show WebRTC Link Health.]
 
-The console reads real browser WebRTC statistics: delay, packet loss, jitter, bitrate, and whether the path is direct or relayed. This local demo has excellent numbers; in production, these help diagnose poor connections.
+My console reads real browser WebRTC statistics: delay, packet loss, jitter, bitrate, and whether the path is direct or relayed. These help diagnose bad connections.
 
 [Show Mermaid architecture diagram.]
 
-The design separates the media plane from the control path. LiveKit routes video to the operator. The Go drone agent validates commands and returns telemetry. Its simulated-drone boundary could later become a MAVLink adapter for a real flight controller.
+My design separates media path from control path. The media path is: drone camera -> LiveKit -> operator. The control path is: operator -> LiveKit -> drone agent. The drone agent validates commands and sends acknowledgements + telemetry back to the operator.
 
 [Technical appendix: show main.go /token handler, drone-agent/main.go, main_test.go, and operator.js.]
 
