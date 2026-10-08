@@ -1,5 +1,5 @@
 # DroneLink: A low-latency RemoteOps simulator
-### by Raymond Gan. See [YouTube video](https://youtu.be/giwAn9Gv_oQ) of my demo.
+### by Raymond Gan. See [YouTube video](https://youtu.be/giwAn9Gv_oQ) of my demo. See my [detailed WebRTC Notes](https://docs.google.com/document/d/1QI1ShrylHItdXS3AeSM7tlN_Luw18V7N3bFORZi7wc0/edit?usp=sharing).
 
 DroneLink is a local [LiveKit](https://github.com/livekit/livekit)-based simulator for remote drone operations. It combines a browser WebRTC media plane with a Golang control plane to explore low latency, network quality, authorization, command ordering, telemetry, and safe behavior when connectivity or operator input disappears.
 
