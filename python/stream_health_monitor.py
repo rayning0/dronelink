@@ -62,6 +62,17 @@
 #     }
 # }
 
+# Before coding, ask only questions that change the design:
+# “Can events arrive out of order or more than once?”
+# “Do we need to keep historical events, or only current state?”
+# “What scale should I optimize for?”
+# “Should I treat timestamps as reliable and monotonic?”
+# “What should happen with invalid or unknown stream IDs?”
+
+# Say your plan before writing:
+# “I’ll start with a dictionary keyed by stream ID so each update and lookup is O(1).
+# I’ll make the simple behavior correct first, then add handling for duplicates and stale events if that is in scope.”
+
 class StreamHealthMonitor:
     """Processes each drone's stream events, tracks each stream’s status, and
     IDs streams whose video is not now arriving."""
